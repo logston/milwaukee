@@ -2,6 +2,8 @@ import bs4
 import requests
 import urllib
 import os
+import glob
+from subprocess import Popen, PIPE
 
 
 URL = 'http://assessments.milwaukee.gov/'
@@ -38,17 +40,29 @@ def get_pdf_link(link):
 
 def fetch_pdf(tax_key, pdf_link):
     resp = requests.get(pdf_link)
-    with open('/Volumes/JetDrive/pdfs/{}.pdf'.format(tax_key), 'wb') as fp:
-        fp.write(resp.content)
+    return resp.content
+
+
+def parse_pdf(content):
+    ps2ascii = Popen(['ps2ascii'], stdin=PIPE, stdout=PIPE,
+            stderr=PIPE, shell=True)
+    ps2ascii.stdin.write(content)
+    ps2ascii.stdin.close()
+    pdf_text = ps2ascii.stdout.read().decode()
+    ps2ascii.stdout.close()
+    ps2ascii.wait()
+    return pdf_text
 
 
 def main():
     with open('uniq_tax_keys.txt') as fp:
         tax_keys = [row.strip() for row in fp if row.strip()]
 
-    #tax_keys = ['5570902000']
+    with open('no-pull.txt') as fp:
+        no_pull_tax_keys = set(row.strip() for row in fp if row.strip())
+
     for i, tax_key in enumerate(tax_keys, start=1):
-        if os.path.exists('/Volumes/JetDrive/pdfs/{}.pdf'.format(tax_key)):
+        if tax_key in no_pull_tax_keys:
             continue
 
         percent_done = '{:3.2f}'.format((i / len(tax_keys)) * 100)
@@ -57,16 +71,35 @@ def main():
         link = get_pdf_link_page_link(tax_key)
         if not link:
             print('No middle link found', flush=True)
+            with open('no-pull.txt', 'a') as fp:
+                fp.write(tax_key + '\n')
             continue
 
         pdf_link = get_pdf_link(link)
         if not pdf_link:
             print('No pdf link found', flush=True)
+            with open('no-pull.txt', 'a') as fp:
+                fp.write(tax_key + '\n')
             continue
 
         print('fetching pdf', end='...', flush=True)
-        fetch_pdf(tax_key, pdf_link)
+        content = fetch_pdf(tax_key, pdf_link)
+
+        print('parsing pdf', end='...', flush=True)
+        text = parse_pdf(content)
+
+        if 'delinquent' in text.lower():
+            print('delinquent found, saving', end='...', flush=True)
+            with open('pdfs/{}.pdf'.format(tax_key), 'wb') as fp:
+                fp.write(content)
+        else:
+            print('up to date', end='...', flush=True)
+
+        with open('no-pull.txt', 'a') as fp:
+            fp.write(tax_key + '\n')
+ 
         print('Done.', flush=True)
 
 main()
+
 
