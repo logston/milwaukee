@@ -1,0 +1,8 @@
+cat milwaukee.sql | psql -U paul -d milwaukee
+
+python get_addr_range.py > milwaukee.high_low
+python get_tax_keys.py > tax_keys.txt
+sort tax_keys.txt | uniq > uniq_tax_keys.txt
+python get_tax_pdfs.py
+python parse_pdfs.py > delinquent_pdfs.txt
+
